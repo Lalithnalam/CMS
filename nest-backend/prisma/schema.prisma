@@ -1,0 +1,359 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+
+}
+
+enum Role {
+  OWNER
+  STAFF
+}
+
+enum VehicleOwnership {
+  OWNED
+  RENTAL
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  ON_TRIP
+  MAINTENANCE
+}
+
+enum DriverPaymentType {
+  TRIP_BASED
+  WEEKLY
+  MONTHLY
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DISPATCHED
+  DELIVERED
+  PAID
+}
+
+enum TripStatus {
+  LOADING
+  IN_TRANSIT
+  DELIVERED
+}
+
+enum PaymentMode {
+  CASH
+  BANK_TRANSFER
+  CREDIT
+}
+
+enum UnitType {
+  TON
+  LOAD
+}
+
+model CrusherUnit {
+  id          String   @id @default(cuid())
+  name        String
+  location    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  users            User[]
+  vendors          Vendor[]
+  productions      ProductionBatch[]
+  customers        Customer[]
+  orders           Order[]
+  weighbridges     WeighbridgeEntry[]
+  vehicles         Vehicle[]
+  drivers          Driver[]
+  cameras          Camera[]
+  products         Product[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String   @unique
+  password     String
+  role         Role     @default(STAFF)
+  unitId       String
+  unit         CrusherUnit @relation(fields: [unitId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  refreshToken String?
+}
+
+model Vendor {
+  id             String   @id @default(cuid())
+  name           String
+  phone          String
+  quarryLocation String
+  materialType   String
+  purchaseRate   Float
+  paymentTerms   String?
+  unitId         String
+  unit           CrusherUnit @relation(fields: [unitId], references: [id])
+  createdAt      DateTime @default(now())
+
+  purchases  VendorPurchase[]
+  payments   VendorPayment[]
+}
+
+model VendorPurchase {
+  id             String   @id @default(cuid())
+  vendorId       String
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  vehicleNumber  String
+  driverName     String
+  grossWeight    Float
+  tareWeight     Float
+  materialWeight Float    // auto-calculated: grossWeight - tareWeight
+  rate           Float
+  totalCost      Float    // auto-calculated: materialWeight * rate
+  date           DateTime @default(now())
+  notes          String?
+}
+
+model VendorPayment {
+  id        String   @id @default(cuid())
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  amount    Float
+  date      DateTime @default(now())
+  notes     String?
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        CrusherUnit @relation(fields: [unitId], references: [id])
+  name        String   // M Sand, P Sand, 20mm Jelly, 40mm Jelly
+  description String?
+  unitType    UnitType @default(TON)
+  pricePerUnit Float
+  createdAt   DateTime @default(now())
+
+  stock            Stock?
+  orderItems       OrderItem[]
+  productionOutputs ProductionOutput[]
+  weighbridgeEntries WeighbridgeEntry[]
+}
+
+model Stock {
+  id        String   @id @default(cuid())
+  productId String   @unique
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Float    @default(0)
+  lowStockThreshold Float @default(10)
+  updatedAt DateTime @updatedAt
+}
+
+model ProductionBatch {
+  id           String   @id @default(cuid())
+  unitId       String
+  unit         CrusherUnit @relation(fields: [unitId], references: [id])
+  rawInputTons Float
+  date         DateTime @default(now())
+  notes        String?
+
+  outputs ProductionOutput[]
+}
+
+model ProductionOutput {
+  id        String   @id @default(cuid())
+  batchId   String
+  batch     ProductionBatch @relation(fields: [batchId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Float
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        CrusherUnit @relation(fields: [unitId], references: [id])
+  name        String
+  phone       String
+  address     String
+  creditLimit Float    @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  orders   Order[]
+  payments CustomerPayment[]
+}
+
+model Order {
+  id               String      @id @default(cuid())
+  customerId       String
+  customer         Customer    @relation(fields: [customerId], references: [id])
+  unitId           String
+  unit             CrusherUnit @relation(fields: [unitId], references: [id])
+  status           OrderStatus @default(PENDING)
+  deliveryLocation String
+  totalAmount      Float
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  items    OrderItem[]
+  trips    Trip[]
+  payments CustomerPayment[]
+  challan  Challan?
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Float
+  rate      Float
+  amount    Float   // quantity * rate
+}
+
+model WeighbridgeEntry {
+  id              String   @id @default(cuid())
+  unitId          String
+  unit            CrusherUnit @relation(fields: [unitId], references: [id])
+  shift           String   // MORNING / AFTERNOON / NIGHT
+  vehicleNumber   String
+  driverName      String
+  orderId         String?
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id])
+  weight          Float
+  rate            Float
+  materialAmount  Float    // weight * rate (auto-calculated)
+  transportCharge Float    @default(0)
+  gst             Float    @default(0)
+  paymentType     PaymentMode @default(CASH)
+  date            DateTime @default(now())
+}
+
+model Vehicle {
+  id           String           @id @default(cuid())
+  unitId       String
+  unit         CrusherUnit      @relation(fields: [unitId], references: [id])
+  vehicleNumber String          @unique
+  vehicleType  String
+  capacity     Float
+  status       VehicleStatus    @default(AVAILABLE)
+  ownershipType VehicleOwnership @default(OWNED)
+  rentalRate   Float?
+  driverId     String?
+  driver       Driver?          @relation(fields: [driverId], references: [id])
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+
+  trips Trip[]
+}
+
+model Driver {
+  id          String            @id @default(cuid())
+  unitId      String
+  unit        CrusherUnit       @relation(fields: [unitId], references: [id])
+  name        String
+  phone       String
+  paymentType DriverPaymentType @default(TRIP_BASED)
+  rate        Float             // per trip / per week / per month
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+
+  vehicle  Vehicle[]
+  trips    Trip[]
+  earnings DriverEarning[]
+}
+
+model Trip {
+  id          String     @id @default(cuid())
+  orderId     String
+  order       Order      @relation(fields: [orderId], references: [id])
+  vehicleId   String
+  vehicle     Vehicle    @relation(fields: [vehicleId], references: [id])
+  driverId    String
+  driver      Driver     @relation(fields: [driverId], references: [id])
+  tripNumber  Int
+  status      TripStatus @default(LOADING)
+  gpsLink     String?
+  dispatchedAt DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  challan       Challan?
+  driverEarning DriverEarning?
+}
+
+model Challan {
+  id           String   @id @default(cuid())
+  orderId      String?  @unique
+  order        Order?   @relation(fields: [orderId], references: [id])
+  tripId       String?  @unique
+  trip         Trip?    @relation(fields: [tripId], references: [id])
+  challanNumber String  @unique
+  pdfUrl       String
+  generatedAt  DateTime @default(now())
+}
+
+model CustomerPayment {
+  id          String      @id @default(cuid())
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  orderId     String?
+  order       Order?      @relation(fields: [orderId], references: [id])
+  amount      Float
+  paymentMode PaymentMode @default(CASH)
+  date        DateTime    @default(now())
+  notes       String?
+}
+
+model DriverEarning {
+  id       String  @id @default(cuid())
+  driverId String
+  driver   Driver  @relation(fields: [driverId], references: [id])
+  tripId   String? @unique
+  trip     Trip?   @relation(fields: [tripId], references: [id])
+  amount   Float
+  week     String? // "2024-W01" format for weekly
+  month    String? // "2024-01" format for monthly
+  date     DateTime @default(now())
+}
+
+model WhatsappLog {
+  id        String   @id @default(cuid())
+  phone     String
+  type      String   // ORDER_CONFIRMED, DISPATCHED, DELIVERED, PAYMENT_REMINDER, LOW_STOCK
+  content   String
+  status    String   @default("SENT")
+  sentAt    DateTime @default(now())
+}
+
+model Camera {
+  id        String   @id @default(cuid())
+  unitId    String
+  unit      CrusherUnit @relation(fields: [unitId], references: [id])
+  name      String
+  location  String
+  streamUrl String
+  isActive  Boolean  @default(true)
+}
+
+model DailySummary {
+  id             String   @id @default(cuid())
+  unitId         String
+  date           DateTime
+  totalOrders    Int      @default(0)
+  totalTrips     Int      @default(0)
+  totalRevenue   Float    @default(0)
+  pendingPayments Float   @default(0)
+  aiSummary      String?
+  createdAt      DateTime @default(now())
+}
+
+// End of schema
